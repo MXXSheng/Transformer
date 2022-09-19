@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchsummary import summary
-
+from config import parser_args
 
 # 1d绝对sin_cos编码
 
@@ -24,11 +25,21 @@ def create_1d_absolute_sin_cos_embedding(pos_len, dim):
     # 赋值
     position_emb[:, 0::2] = emb_sin
     position_emb[:, 1::2] = emb_cos
-    return position_emb
+    return position_emb.type(torch.FloatTensor)
+
+
+class JS_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, y):
+        return F.kl_div(x.softmax(dim=-1).log(), y.softmax(dim=-1), reduction='sum')
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, dimension_per_length=144, dimension_qkv=512, heads=8, bias=False):
+    def __init__(self, dimension_per_length=parser_args().dimension_per_length,
+                 dimension_qkv=parser_args().dimension_qkv,
+                 heads=parser_args().head, bias=False):
         """
 
         :param input_x:   shape:[batch, length, dimension_per_length]
@@ -67,7 +78,9 @@ class MultiHeadAttention(nn.Module):
 
 
 class FeedForwardBlock(nn.Module):
-    def __init__(self, dimension_per_length=144, dimension_hidden=3, dropout_prob=0.1):
+    def __init__(self, dimension_per_length=parser_args().dimension_per_length,
+                 dimension_hidden=parser_args().dimension_hidden,
+                 dropout_prob=parser_args().dropout_prob):
         super(FeedForwardBlock, self).__init__()
         self.linear1 = nn.Linear(dimension_per_length, dimension_hidden)
         self.linear2 = nn.Linear(dimension_hidden, dimension_per_length)
@@ -79,7 +92,7 @@ class FeedForwardBlock(nn.Module):
 
 
 class TransformerEncoderBlock(nn.Module):
-    def __init__(self, dimension_per_length=144):
+    def __init__(self, dimension_per_length=parser_args().dimension_per_length):
         super(TransformerEncoderBlock, self).__init__()
         self.mutihead_attention = MultiHeadAttention()
         self.feed_forward_block = FeedForwardBlock()
@@ -95,7 +108,7 @@ class TransformerEncoderBlock(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, channel, depth=2):
+    def __init__(self, channel=parser_args().pos_len, depth=parser_args().depth):
         super(TransformerEncoder, self).__init__()
         self.depth = depth
         self.con1 = nn.Conv2d(in_channels=channel, out_channels=channel, kernel_size=4, stride=2)
@@ -108,7 +121,7 @@ class TransformerEncoder(nn.Module):
 
         self.transformer_encoder_block = TransformerEncoderBlock()
 
-    def __call__(self, inputs, position_embedding):
+    def __call__(self, inputs, position_embedding, inputs_mobility):
         """
 
         :param inputs: [batch_size, seq_len, H, W]
